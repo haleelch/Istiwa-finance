@@ -320,7 +320,7 @@ function viewSettings() {
 /* ---------- router ---------- */
 function render() {
   const h = location.hash || '#home';
-  let key = 'home', title = 'Overview', html;
+  let key = 'home', title = 'Istiwa', html;
   if (h.startsWith('#s/')) { key = 'users'; title = 'Student'; html = viewStudent(h.slice(3)); }
   else if (h === '#groups') { key = 'layers'; title = 'Singles & Teams'; html = viewGroups(); }
   else if (h === '#students') { key = 'users'; title = 'Students'; html = viewStudents(); }
