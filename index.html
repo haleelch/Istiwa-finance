@@ -105,12 +105,12 @@ body{background:#f4f6fb;color:var(--ink);font-family:'Plus Jakarta Sans',system-
 
 <script>
 const $ = s => document.querySelector(s);
-const DB_URL = 'https://digital-locker-7c539-default-rtdb.asia-southeast1.firebasedatabase.app';
+const DB_URL = 'https://istiwa-fina-default-rtdb.asia-southeast1.firebasedatabase.app';
 // If the Firebase script cannot load (for example in the Claude preview), the app runs in local-only mode.
 const LOCAL = typeof firebase === 'undefined';
 let db = null, mem = {};
 if (LOCAL) { try { mem = JSON.parse(localStorage.getItem('fest_local') || '{}') } catch { mem = {} } }
-else { firebase.initializeApp({ databaseURL: DB_URL, projectId: 'digital-locker-7c539' }); db = firebase.database(); }
+else { firebase.initializeApp({ databaseURL: DB_URL, projectId: 'istiwa-fina' }); db = firebase.database(); }
 const persist = () => { try { localStorage.setItem('fest_local', JSON.stringify(mem)) } catch {} };
 const syncLocal = () => { S = Object.values(mem.students || {}); T = Object.values(mem.tx || {}); cfg = Object.assign({ qr: '', pdf: '', pwh: '' }, mem.cfg || {}); refresh() };
 const setLocal = (path, val) => { const k = path.split('/'), last = k.pop(); let o = mem; k.forEach(p => o = o[p] = o[p] || {}); if (val === null) delete o[last]; else o[last] = val; persist(); syncLocal() };
@@ -138,6 +138,147 @@ const ic = n => {
     heart: '<path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8l1 1.1L12 21l7.8-7.5 1-1.1a5.5 5.5 0 0 0 0-7.8z"/>'
   };
   return `<svg viewBox="0 0 24 24" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${p[n]}</svg>`;
+};
+const NAV = [['home', 'Home', '#home'], ['users', 'Students', '#students'], ['heart', 'Donate', '#donate']];
+
+function blobUrl(d) {
+  const [h, b] = d.split(','), m = h.match(/:(.*?);/)[1], a = atob(b), u = new Uint8Array(a.length);
+  for (let i = 0; i < a.length; i++) u[i] = a.charCodeAt(i);
+  return URL.createObjectURL(new Blob([u], { type: m }));
+}
+
+/* ---------- views ---------- */
+function viewHome() {
+  const g = T.reduce((a, t) => a + t.gpay, 0), c = T.reduce((a, t) => a + t.cash, 0), tot = g + c;
+  const pct = tot ? Math.round(g / tot * 100) : 0;
+  const donut = tot ? `conic-gradient(var(--blue) 0 ${pct}%, #a9b4ff ${pct}% 100%)` : '#e6e8f2';
+  const top = S.map(s => ({ s, t: sTotal(s.id) })).filter(x => x.t > 0).sort((a, b) => b.t - a.t).slice(0, 5);
+  const recent = [...T].sort((a, b) => b.ts - a.ts).slice(0, 6);
+  const medals = ['🥇', '🥈', '🥉'];
+  return `
+  <a href="#donate" class="blue rounded-2xl p-4 block text-center font-bold text-lg mb-4">Donate now</a>
+  <div class="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
+    <div class="blue rounded-2xl p-4 col-span-2 md:col-span-1">
+      <p class="text-sm opacity-90">Total collected</p>
+      <p class="text-3xl font-extrabold mt-1">${inr(tot)}</p>
+      <p class="text-xs opacity-90 mt-1">${T.length} transactions from ${S.length} students</p>
+    </div>
+    <div class="card"><p class="text-sm mute">Google Pay</p><p class="text-2xl font-extrabold mt-1" style="color:var(--blue)">${inr(g)}</p></div>
+    <div class="card"><p class="text-sm mute">Cash</p><p class="text-2xl font-extrabold mt-1" style="color:var(--blue)">${inr(c)}</p></div>
+  </div>
+  <div class="grid md:grid-cols-2 gap-4 mb-4">
+    <div class="card"><h2 class="font-extrabold mb-3">Top collectors</h2>
+      ${top.length ? top.map((x, i) => `<a href="#s/${x.s.id}" class="flex items-center justify-between py-2 border-b border-slate-100 last:border-0">
+        <span class="font-semibold">${medals[i] || (i + 1) + '.'} ${esc(x.s.name)}</span><span class="font-extrabold">${inr(x.t)}</span></a>`).join('')
+        : '<p class="text-sm mute">No amounts yet. Open Students and create your page to start.</p>'}
+    </div>
+    <div class="card"><h2 class="font-extrabold mb-3">Payment split</h2>
+      <div class="flex items-center gap-5">
+        <div class="w-28 h-28 rounded-full grid place-items-center shrink-0" style="background:${donut}"><div class="w-20 h-20 rounded-full bg-white grid place-items-center font-extrabold">${tot ? pct + '%' : '–'}</div></div>
+        <div class="space-y-2 text-sm font-semibold">
+          <p><span class="inline-block w-3 h-3 rounded-full mr-2" style="background:var(--blue)"></span>Google Pay ${tot ? pct + '%' : ''}</p>
+          <p><span class="inline-block w-3 h-3 rounded-full mr-2" style="background:#a9b4ff"></span>Cash ${tot ? 100 - pct + '%' : ''}</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="card"><h2 class="font-extrabold mb-3">Recent transactions</h2>
+    ${recent.length ? recent.map(t => { const s = S.find(x => x.id === t.sid); return `<a href="#s/${t.sid}" class="flex items-center justify-between py-2 border-b border-slate-100 last:border-0">
+      <span><span class="font-semibold block">${esc(s?.name || 'Unknown')}</span><span class="text-xs mute">${when(t.ts)}${t.note ? ' · ' + esc(t.note) : ''}</span></span>
+      <span class="font-extrabold">${inr(t.gpay + t.cash)}</span></a>` }).join('') : '<p class="text-sm mute">No transactions yet.</p>'}
+  </div>`;
+}
+
+function viewStudents() {
+  const rows = S.map(s => ({ s, t: sTotal(s.id) })).sort((a, b) => b.t - a.t || a.s.name.localeCompare(b.s.name));
+  return `
+  <div class="flex items-center justify-between gap-2 mb-3">
+    <p class="mute text-sm">${S.length} students</p>
+    <button data-act="add-student" class="btn btn-p">+ Create my page</button>
+  </div>
+  <input id="search" class="inp mb-3" placeholder="Search name or place">
+  <div id="stList" class="space-y-2">${stRows(rows, '')}</div>`;
+}
+function stRows(rows, q) {
+  rows = rows.filter(r => !q || (r.s.name + ' ' + r.s.place).toLowerCase().includes(q));
+  return rows.length ? rows.map(({ s, t }) => `
+    <a href="#s/${s.id}" class="card flex items-center gap-3">
+      <span class="w-11 h-11 rounded-full grid place-items-center font-extrabold shrink-0" style="background:var(--soft);color:var(--blue)">${esc(initials(s.name))}</span>
+      <span class="min-w-0 flex-1"><span class="font-bold block truncate">${esc(s.name)}</span><span class="text-sm mute block truncate">${esc(s.place) || 'No place added'}</span></span>
+      <span class="font-extrabold">${inr(t)}</span>
+    </a>`).join('') : '<p class="card text-sm mute">No students found. Tap Create my page to add yours.</p>';
+}
+
+function viewStudent(id) {
+  const s = S.find(x => x.id === id);
+  if (!s) return '<div class="card"><p>Page not found.</p><a href="#students" class="btn btn-p inline-block mt-3">Back to students</a></div>';
+  const mine = unlocked(id), list = T.filter(t => t.sid === id).sort((a, b) => b.ts - a.ts);
+  return `
+  <a href="#students" class="text-sm font-semibold" style="color:var(--blue)">‹ All students</a>
+  <div class="blue rounded-2xl p-4 mt-2 mb-3">
+    <div class="flex items-center gap-3">
+      <span class="w-12 h-12 rounded-full grid place-items-center font-extrabold bg-white" style="color:var(--blue)">${esc(initials(s.name))}</span>
+      <div class="min-w-0"><p class="font-extrabold text-lg truncate">${esc(s.name)}</p>
+        <p class="text-sm opacity-90 truncate">${esc(s.place) || 'No place added'}${mine && s.phone ? ' · ' + esc(s.phone) : ''}</p></div>
+    </div>
+    <p class="text-sm opacity-90 mt-4">Collected</p>
+    <p class="text-3xl font-extrabold">${inr(sTotal(id))}</p>
+  </div>
+  <div class="grid grid-cols-2 gap-3 mb-3">
+    <div class="card"><p class="text-sm mute">Google Pay</p><p class="text-xl font-extrabold" style="color:var(--blue)">${inr(sTotal(id, 'gpay'))}</p></div>
+    <div class="card"><p class="text-sm mute">Cash</p><p class="text-xl font-extrabold" style="color:var(--blue)">${inr(sTotal(id, 'cash'))}</p></div>
+  </div>
+  <div class="flex flex-wrap gap-2 mb-4">
+    ${mine ? `<button data-act="add-tx" data-id="${id}" class="btn btn-p">+ Add amount</button><button data-act="edit-student" data-id="${id}" class="btn btn-s">Edit profile</button>`
+           : `<button data-act="unlock" data-id="${id}" class="btn btn-p">Unlock to add amount</button><p class="text-xs mute self-center">Only ${esc(s.name)} can add amounts here.</p>`}
+    ${admin ? `<button data-act="del-student" data-id="${id}" class="btn btn-d">Delete page</button>` : ''}
+  </div>
+  <div class="card"><h2 class="font-extrabold mb-3">Transactions</h2>
+    ${list.length ? list.map(t => `
+      <div class="py-3 border-b border-slate-100 last:border-0">
+        <div class="flex items-center justify-between gap-2">
+          <div class="min-w-0"><p class="font-semibold truncate">${esc(t.note) || 'Donation'}</p><p class="text-xs mute">${when(t.ts)}</p></div>
+          <p class="font-extrabold">${inr(t.gpay + t.cash)}</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2 mt-2">
+          ${t.gpay ? `<span class="chip">GPay ${inr(t.gpay)}</span>` : ''}${t.cash ? `<span class="chip" style="background:#e3f7e8;color:#12713a">Cash ${inr(t.cash)}</span>` : ''}
+          ${admin ? `<span class="ml-auto flex gap-2"><button data-act="edit-tx" data-id="${t.id}" class="btn btn-s py-1">Edit</button><button data-act="del-tx" data-id="${t.id}" class="btn btn-d py-1">Delete</button></span>` : ''}
+        </div>
+      </div>`).join('') : `<p class="text-sm mute">No transactions yet.${mine ? ' Tap Add amount to record your first collection.' : ''}</p>`}
+  </div>`;
+}
+
+function viewDonate() {
+  return `
+  <div class="card text-center mb-4">
+    <h2 class="font-extrabold text-lg">Donate to the fest fund</h2>
+    <p class="text-sm mute mb-3">Scan the QR with any UPI app to pay.</p>
+    ${cfg.qr ? `<img src="${cfg.qr}" alt="Payment QR code" class="w-64 max-w-full mx-auto rounded-xl border border-slate-200 p-2 bg-white">` : '<p class="text-sm mute py-6">QR code not added yet.</p>'}
+    ${cfg.pdf ? '<button data-act="pdf" class="btn btn-p mt-3">Open payment PDF</button>' : ''}
+  </div>
+  ${admin ? `<div class="card space-y-3">
+    <h2 class="font-extrabold">Admin tools</h2>
+    <div><label class="text-sm font-semibold">Payment QR image</label><input id="qrFile" type="file" accept="image/*" class="inp mt-1"></div>
+    <div><label class="text-sm font-semibold">Payment PDF (max 2 MB)</label><input id="pdfFile" type="file" accept="application/pdf" class="inp mt-1"></div>
+    <div><label class="text-sm font-semibold">Admin password</label>
+      <div class="flex gap-2 mt-1"><input id="newPw" class="inp" placeholder="New password"><button data-act="pw" class="btn btn-p">Change</button></div></div>
+    <div class="flex gap-2"><button data-act="export" class="btn btn-s">Export backup</button>
+      <label class="btn btn-s cursor-pointer">Import backup<input id="impFile" type="file" accept="application/json" class="hidden"></label></div>
+  </div>` : ''}`;
+}
+
+/* ---------- router ---------- */
+function render() {
+  const h = location.hash || '#home';
+  let key = 'home', title = 'Overview', html;
+  if (h.startsWith('#s/')) { key = 'users'; title = 'Student'; html = viewStudent(h.slice(3)); }
+  else if (h === '#students') { key = 'users'; title = 'Students'; html = viewStudents(); }
+  else if (h === '#donate') { key = 'heart'; title = 'Donate'; html = viewDonate(); }
+  else html = viewHome();
+  $('#view').innerHTML = html;
+  $('#pageTitle').textContent = title;
+  const links = NAV.map(([i, l, href]) => `<a href="${href}" class="${i === key ? 'on' : ''} md:flex-row flex-col text-xs md:text-base !gap-0.5 md:!gap-2 items-center">${ic(i)}<span>${l}</span></a>`).join('');
+  $('#sideNav').innerHTML = links; $('#botNav').innerHTML =urrentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${p[n]}</svg>`;
 };
 const NAV = [['home', 'Home', '#home'], ['users', 'Students', '#students'], ['heart', 'Donate', '#donate']];
 
