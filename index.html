@@ -7,6 +7,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 <style>
 :root{--blue:#2437e8;--soft:#e8ebff;--ink:#16193a;--mute:#6b7194}
 body{background:#f4f6fb;color:var(--ink);font-family:'Plus Jakarta Sans',system-ui,sans-serif}
@@ -37,7 +39,7 @@ body{background:#f4f6fb;color:var(--ink);font-family:'Plus Jakarta Sans',system-
 
   <div class="flex-1 min-w-0">
     <header class="flex items-center justify-between gap-2 px-4 md:px-6 py-3 bg-white md:bg-transparent sticky top-0 z-30">
-      <h1 id="pageTitle" class="font-extrabold text-lg"></h1>
+      <div class="flex items-center gap-2"><h1 id="pageTitle" class="font-extrabold text-lg"></h1><span id="conn" class="text-xs font-bold mute">● Connecting</span></div>
       <button id="adminBtn" class="btn btn-s">Admin Login</button>
     </header>
     <main id="view" class="px-4 md:px-6 pt-3 pb-28 md:pb-10 max-w-5xl"></main>
@@ -97,18 +99,22 @@ body{background:#f4f6fb;color:var(--ink);font-family:'Plus Jakarta Sans',system-
 
 <script>
 const $ = s => document.querySelector(s);
-const LS = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d } catch { return d } };
-const put = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true } catch { alert('Storage full. Use a smaller file.'); return false } };
+const DB_URL = 'https://digital-locker-7c539-default-rtdb.asia-southeast1.firebasedatabase.app';
+firebase.initializeApp({ databaseURL: DB_URL, projectId: 'digital-locker-7c539' });
+const db = firebase.database();
+const wr = (path, val) => db.ref('fest/' + path).set(val).catch(e => alert('Save failed: ' + e.message));
+const rm = path => db.ref('fest/' + path).remove().catch(e => alert('Delete failed: ' + e.message));
+const sha = async s => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)))].map(b => b.toString(16).padStart(2, '0')).join('');
+const DEFAULT_PW = 'admin123';
 const inr = n => '₹' + Number(n || 0).toLocaleString('en-IN');
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const when = ts => new Date(ts).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
 const initials = n => n.trim().split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase();
 
-let S = LS('fest2_students', []), T = LS('fest2_tx', []);
-let cfg = Object.assign({ pw: 'admin123', qr: '', pdf: '' }, LS('fest_cfg', {}));
+let S = [], T = [];
+let cfg = { qr: '', pdf: '', pwh: '' };
 let admin = sessionStorage.getItem('fest_admin') === '1', editSid = null, editTid = null, txSid = null, pinSid = null;
 
-const saveData = () => put('fest2_students', S) && put('fest2_tx', T);
 const open = id => { const e = $('#' + id); e.classList.remove('hidden'); e.classList.add('flex') };
 const close = id => { const e = $('#' + id); e.classList.add('hidden'); e.classList.remove('flex') };
 const unlocked = sid => admin || sessionStorage.getItem('fest_u_' + sid) === '1';
@@ -154,6 +160,145 @@ function viewHome() {
   <div class="grid md:grid-cols-2 gap-4 mb-4">
     <div class="card"><h2 class="font-extrabold mb-3">Top collectors</h2>
       ${top.length ? top.map((x, i) => `<a href="#s/${x.s.id}" class="flex items-center justify-between py-2 border-b border-slate-100 last:border-0">
+        <span class="font-semibold">${medals[i] || (i + 1) + '.'} ${esc(x.s.name)}</span><span class="font-extrabold">${inr(x.t)}</span></a>`).join('')
+        : '<p class="text-sm mute">No amounts yet. Open Students and create your page to start.</p>'}
+    </div>
+    <div class="card"><h2 class="font-extrabold mb-3">Payment split</h2>
+      <div class="flex items-center gap-5">
+        <div class="w-28 h-28 rounded-full grid place-items-center shrink-0" style="background:${donut}"><div class="w-20 h-20 rounded-full bg-white grid place-items-center font-extrabold">${tot ? pct + '%' : '–'}</div></div>
+        <div class="space-y-2 text-sm font-semibold">
+          <p><span class="inline-block w-3 h-3 rounded-full mr-2" style="background:var(--blue)"></span>Google Pay ${tot ? pct + '%' : ''}</p>
+          <p><span class="inline-block w-3 h-3 rounded-full mr-2" style="background:#a9b4ff"></span>Cash ${tot ? 100 - pct + '%' : ''}</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="card"><h2 class="font-extrabold mb-3">Recent transactions</h2>
+    ${recent.length ? recent.map(t => { const s = S.find(x => x.id === t.sid); return `<a href="#s/${t.sid}" class="flex items-center justify-between py-2 border-b border-slate-100 last:border-0">
+      <span><span class="font-semibold block">${esc(s?.name || 'Unknown')}</span><span class="text-xs mute">${when(t.ts)}${t.note ? ' · ' + esc(t.note) : ''}</span></span>
+      <span class="font-extrabold">${inr(t.gpay + t.cash)}</span></a>` }).join('') : '<p class="text-sm mute">No transactions yet.</p>'}
+  </div>`;
+}
+
+function viewStudents() {
+  const rows = S.map(s => ({ s, t: sTotal(s.id) })).sort((a, b) => b.t - a.t || a.s.name.localeCompare(b.s.name));
+  return `
+  <div class="flex items-center justify-between gap-2 mb-3">
+    <p class="mute text-sm">${S.length} students</p>
+    <button data-act="add-student" class="btn btn-p">+ Create my page</button>
+  </div>
+  <input id="search" class="inp mb-3" placeholder="Search name or place">
+  <div id="stList" class="space-y-2">${stRows(rows, '')}</div>`;
+}
+function stRows(rows, q) {
+  rows = rows.filter(r => !q || (r.s.name + ' ' + r.s.place).toLowerCase().includes(q));
+  return rows.length ? rows.map(({ s, t }) => `
+    <a href="#s/${s.id}" class="card flex items-center gap-3">
+      <span class="w-11 h-11 rounded-full grid place-items-center font-extrabold shrink-0" style="background:var(--soft);color:var(--blue)">${esc(initials(s.name))}</span>
+      <span class="min-w-0 flex-1"><span class="font-bold block truncate">${esc(s.name)}</span><span class="text-sm mute block truncate">${esc(s.place) || 'No place added'}</span></span>
+      <span class="font-extrabold">${inr(t)}</span>
+    </a>`).join('') : '<p class="card text-sm mute">No students found. Tap Create my page to add yours.</p>';
+}
+
+function viewStudent(id) {
+  const s = S.find(x => x.id === id);
+  if (!s) return '<div class="card"><p>Page not found.</p><a href="#students" class="btn btn-p inline-block mt-3">Back to students</a></div>';
+  const mine = unlocked(id), list = T.filter(t => t.sid === id).sort((a, b) => b.ts - a.ts);
+  return `
+  <a href="#students" class="text-sm font-semibold" style="color:var(--blue)">‹ All students</a>
+  <div class="blue rounded-2xl p-4 mt-2 mb-3">
+    <div class="flex items-center gap-3">
+      <span class="w-12 h-12 rounded-full grid place-items-center font-extrabold bg-white" style="color:var(--blue)">${esc(initials(s.name))}</span>
+      <div class="min-w-0"><p class="font-extrabold text-lg truncate">${esc(s.name)}</p>
+        <p class="text-sm opacity-90 truncate">${esc(s.place) || 'No place added'}${mine && s.phone ? ' · ' + esc(s.phone) : ''}</p></div>
+    </div>
+    <p class="text-sm opacity-90 mt-4">Collected</p>
+    <p class="text-3xl font-extrabold">${inr(sTotal(id))}</p>
+  </div>
+  <div class="grid grid-cols-2 gap-3 mb-3">
+    <div class="card"><p class="text-sm mute">Google Pay</p><p class="text-xl font-extrabold" style="color:var(--blue)">${inr(sTotal(id, 'gpay'))}</p></div>
+    <div class="card"><p class="text-sm mute">Cash</p><p class="text-xl font-extrabold" style="color:var(--blue)">${inr(sTotal(id, 'cash'))}</p></div>
+  </div>
+  <div class="flex flex-wrap gap-2 mb-4">
+    ${mine ? `<button data-act="add-tx" data-id="${id}" class="btn btn-p">+ Add amount</button><button data-act="edit-student" data-id="${id}" class="btn btn-s">Edit profile</button>`
+           : `<button data-act="unlock" data-id="${id}" class="btn btn-p">Unlock to add amount</button><p class="text-xs mute self-center">Only ${esc(s.name)} can add amounts here.</p>`}
+    ${admin ? `<button data-act="del-student" data-id="${id}" class="btn btn-d">Delete page</button>` : ''}
+  </div>
+  <div class="card"><h2 class="font-extrabold mb-3">Transactions</h2>
+    ${list.length ? list.map(t => `
+      <div class="py-3 border-b border-slate-100 last:border-0">
+        <div class="flex items-center justify-between gap-2">
+          <div class="min-w-0"><p class="font-semibold truncate">${esc(t.note) || 'Donation'}</p><p class="text-xs mute">${when(t.ts)}</p></div>
+          <p class="font-extrabold">${inr(t.gpay + t.cash)}</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2 mt-2">
+          ${t.gpay ? `<span class="chip">GPay ${inr(t.gpay)}</span>` : ''}${t.cash ? `<span class="chip" style="background:#e3f7e8;color:#12713a">Cash ${inr(t.cash)}</span>` : ''}
+          ${admin ? `<span class="ml-auto flex gap-2"><button data-act="edit-tx" data-id="${t.id}" class="btn btn-s py-1">Edit</button><button data-act="del-tx" data-id="${t.id}" class="btn btn-d py-1">Delete</button></span>` : ''}
+        </div>
+      </div>`).join('') : `<p class="text-sm mute">No transactions yet.${mine ? ' Tap Add amount to record your first collection.' : ''}</p>`}
+  </div>`;
+}
+
+function viewDonate() {
+  return `
+  <div class="card text-center mb-4">
+    <h2 class="font-extrabold text-lg">Donate to the fest fund</h2>
+    <p class="text-sm mute mb-3">Scan the QR with any UPI app to pay.</p>
+    ${cfg.qr ? `<img src="${cfg.qr}" alt="Payment QR code" class="w-64 max-w-full mx-auto rounded-xl border border-slate-200 p-2 bg-white">` : '<p class="text-sm mute py-6">QR code not added yet.</p>'}
+    ${cfg.pdf ? '<button data-act="pdf" class="btn btn-p mt-3">Open payment PDF</button>' : ''}
+  </div>
+  ${admin ? `<div class="card space-y-3">
+    <h2 class="font-extrabold">Admin tools</h2>
+    <div><label class="text-sm font-semibold">Payment QR image</label><input id="qrFile" type="file" accept="image/*" class="inp mt-1"></div>
+    <div><label class="text-sm font-semibold">Payment PDF (max 2 MB)</label><input id="pdfFile" type="file" accept="application/pdf" class="inp mt-1"></div>
+    <div><label class="text-sm font-semibold">Admin password</label>
+      <div class="flex gap-2 mt-1"><input id="newPw" class="inp" placeholder="New password"><button data-act="pw" class="btn btn-p">Change</button></div></div>
+    <div class="flex gap-2"><button data-act="export" class="btn btn-s">Export backup</button>
+      <label class="btn btn-s cursor-pointer">Import backup<input id="impFile" type="file" accept="application/json" class="hidden"></label></div>
+  </div>` : ''}`;
+}
+
+/* ---------- router ---------- */
+function render() {
+  const h = location.hash || '#home';
+  let key = 'home', title = 'Overview', html;
+  if (h.startsWith('#s/')) { key = 'users'; title = 'Student'; html = viewStudent(h.slice(3)); }
+  else if (h === '#students') { key = 'users'; title = 'Students'; html = viewStudents(); }
+  else if (h === '#donate') { key = 'heart'; title = 'Donate'; html = viewDonate(); }
+  else html = viewHome();
+  $('#view').innerHTML = html;
+  $('#pageTitle').textContent = title;
+  const links = NAV.map(([i, l, href]) => `<a href="${href}" class="${i === key ? 'on' : ''} md:flex-row flex-col text-xs md:text-base !gap-0.5 md:!gap-2 items-center">${ic(i)}<span>${l}</span></a>`).join('');
+  $('#sideNav').innerHTML = links; $('#botNav').innerHTML = links;
+  $('#adminBtn').textContent = admin ? 'Logout' : 'Admin Login';
+  const sr = $('#search');
+  if (sr) sr.oninput = () => $('#stList').innerHTML = stRows(S.map(s => ({ s, t: sTotal(s.id) })).sort((a, b) => b.t - a.t || a.s.name.localeCompare(b.s.name)), sr.value.trim().toLowerCase());
+}
+window.addEventListener('hashchange', () => { render(); scrollTo(0, 0) });
+
+/* ---------- actions ---------- */
+const calc = () => $('#t_tot').textContent = inr((+$('#t_gpay').value || 0) + (+$('#t_cash').value || 0));
+$('#t_gpay').oninput = calc; $('#t_cash').oninput = calc;
+
+function openStudent(s) {
+  editSid = s ? s.id : null;
+  $('#stTitle').textContent = s ? 'Edit profile' : 'Create your page';
+  $('#s_name').value = s?.name || ''; $('#s_place').value = s?.place || '';
+  $('#s_phone').value = s?.phone || ''; $('#s_pin').value = ''; $('#s_pin').required = !s; $('#s_pin').placeholder = s ? 'New PIN (leave blank to keep)' : '4-digit PIN';
+  open('studentModal');
+}
+function openTx(sid, t) {
+  txSid = sid; editTid = t ? t.id : null;
+  $('#txTitle').textContent = t ? 'Edit amount' : 'Add amount';
+  $('#t_gpay').value = t?.gpay || ''; $('#t_cash').value = t?.cash || ''; $('#t_note').value = t?.note || '';
+  calc(); open('txModal');
+}
+
+document.body.addEventListener('click', e => {
+  const b = e.target.closest('[data-act]'); if (!b) return;
+  const id = b.dataset.id, a = b.dataset.act;
+  if (a === 'close') close(b.dataset.m);
+  else if (a === 'add-student') openStuden">
         <span class="font-semibold">${medals[i] || (i + 1) + '.'} ${esc(x.s.name)}</span><span class="font-extrabold">${inr(x.t)}</span></a>`).join('')
         : '<p class="text-sm mute">No amounts yet. Open Students and create your page to start.</p>'}
     </div>
